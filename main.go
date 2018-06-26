@@ -33,6 +33,8 @@ import (
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
+var ignoreLabels = flag.String("config.labels-suppress", "", "comma-separated list of labels to suppress from being exported")
+var ecsClusterNames = flag.String("config.clusters", "", "if specified, export tasks from only this comma-separated list of clusters")
 
 // logError is a convenience function that decodes all possible ECS
 // errors and displays them to standard error.
@@ -69,12 +71,34 @@ func GetClusters(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		output.ClusterArns = append(output.ClusterArns, myoutput.ClusterArns...)
 		if output.NextToken == nil {
 			break
 		}
 		input.NextToken = output.NextToken
 	}
+
+	if *ecsClusterNames != "" {
+		// turn list into a map for easy lookup
+		includeOnly := make(map[string]bool)
+		for _, k := range strings.Split(*ecsClusterNames, ",") {
+			includeOnly[k] = true
+		}
+
+		matchingArns := make([]*string, 0)
+
+		for _, arn := range output.ClusterArns {
+			slashIdx := strings.LastIndex(*arn, "/")
+			clusterName := (*arn)[slashIdx+1:]
+			if _, ok := includeOnly[clusterName]; ok {
+				matchingArns = append(matchingArns, arn)
+			}
+		}
+
+		output.ClusterArns = matchingArns
+	}
+
 	return output, nil
 }
 
@@ -202,7 +226,6 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			hostPort = int64(exporterPort)
 		}
 
-
 		if exporterServerName, ok = d.DockerLabels["PROMETHEUS_EXPORTER_SERVER_NAME"]; ok {
 			host = strings.TrimRight(*exporterServerName, "/")
 		} else {
@@ -211,7 +234,9 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 		}
 
 		labels := yaml.MapSlice{}
-		labels = append(labels,
+
+		allLabels := yaml.MapSlice{}
+		allLabels = append(allLabels,
 			yaml.MapItem{"task_arn", *t.TaskArn},
 			yaml.MapItem{"task_name", *t.TaskDefinition.Family},
 			yaml.MapItem{"task_revision", fmt.Sprintf("%d", *t.TaskDefinition.Revision)},
@@ -221,6 +246,22 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			yaml.MapItem{"container_arn", *i.ContainerArn},
 			yaml.MapItem{"docker_image", *d.Image},
 		)
+
+		if *ignoreLabels != "" {
+			// turn list into a map for easy lookup
+			suppress := make(map[string]bool)
+			for _, k := range strings.Split(*ignoreLabels, ",") {
+				suppress[k] = true
+			}
+
+			// if not suppression map, then add
+			for _, e := range allLabels {
+				if _, ok := suppress[e.Key.(string)]; !ok {
+					labels = append(labels, e)
+				}
+			}
+		}
+
 		ret = append(ret, &PrometheusTaskInfo{
 			Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
 			Labels:  labels,
