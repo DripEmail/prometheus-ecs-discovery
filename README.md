@@ -17,6 +17,10 @@ The command line parameters that can be used are:
   exiting (0 = infinite)
 * -config.write-to (string): path of file to write ECS service
   discovery information to (default "ecs_file_sd.yml")
+* -config.clusters (string): if specified, export tasks from only
+  this comma-separated list of clusters (default "")
+* -config.labels-suppress (string): comma-separated list of labels
+  to suppress from being exported (default "")
 
 ## Usage
 
