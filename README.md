@@ -22,9 +22,6 @@ The command line parameters that can be used are:
 * -config.labels (string): comma-separated list of labels to
   export (defaults to all)
 
-
-var exportLabels = flag.String("config.labels", "", "comma-separated list of labels to export (defaults to all)")
-
 ## Usage
 
 First, build this program using the usual `go get` mechanism.
