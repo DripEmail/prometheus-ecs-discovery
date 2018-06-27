@@ -19,8 +19,11 @@ The command line parameters that can be used are:
   discovery information to (default "ecs_file_sd.yml")
 * -config.clusters (string): if specified, export tasks from only
   this comma-separated list of clusters (default "")
-* -config.labels-suppress (string): comma-separated list of labels
-  to suppress from being exported (default "")
+* -config.labels (string): comma-separated list of labels to
+  export (defaults to all)
+
+
+var exportLabels = flag.String("config.labels", "", "comma-separated list of labels to export (defaults to all)")
 
 ## Usage
 

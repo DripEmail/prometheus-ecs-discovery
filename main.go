@@ -33,7 +33,7 @@ import (
 var outFile = flag.String("config.write-to", "ecs_file_sd.yml", "path of file to write ECS service discovery information to")
 var interval = flag.Duration("config.scrape-interval", 60*time.Second, "interval at which to scrape the AWS API for ECS service discovery information")
 var times = flag.Int("config.scrape-times", 0, "how many times to scrape before exiting (0 = infinite)")
-var ignoreLabels = flag.String("config.labels-suppress", "", "comma-separated list of labels to suppress from being exported")
+var exportLabels = flag.String("config.labels", "", "comma-separated list of labels to export (defaults to all)")
 var ecsClusterNames = flag.String("config.clusters", "", "if specified, export tasks from only this comma-separated list of clusters")
 
 // logError is a convenience function that decodes all possible ECS
@@ -247,19 +247,21 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			yaml.MapItem{"docker_image", *d.Image},
 		)
 
-		if *ignoreLabels != "" {
+		if *exportLabels != "" {
 			// turn list into a map for easy lookup
-			suppress := make(map[string]bool)
-			for _, k := range strings.Split(*ignoreLabels, ",") {
-				suppress[k] = true
+			exports := make(map[string]bool)
+			for _, k := range strings.Split(*exportLabels, ",") {
+				exports[k] = true
 			}
 
-			// if not suppression map, then add
+			// if in export map, then add
 			for _, e := range allLabels {
-				if _, ok := suppress[e.Key.(string)]; !ok {
+				if _, ok := exports[e.Key.(string)]; ok {
 					labels = append(labels, e)
 				}
 			}
+		} else {
+			labels = allLabels
 		}
 
 		ret = append(ret, &PrometheusTaskInfo{
