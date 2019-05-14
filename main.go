@@ -201,31 +201,37 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			continue
 		}
 
-		var err error
-		var exporterPort int
-		var hostPort int64
+		exporterToHostPort := make(map[int]int64)
+
+		for _, parsed := range strings.Split(*v, ",") {
+			if exporterPort, err := strconv.Atoi(strings.TrimSpace(parsed)); err != nil && exporterPort > 0 {
+				// store a key for now, we'll resolve to a host port shortly
+				exporterToHostPort[exporterPort] = 0
+			} else {
+				// This container has an invalid port definition.
+				// This container is no good.  We continue.
+				continue
+			}
+		}
+
+		for exporterPort := range exporterToHostPort {
+			if *t.LaunchType != "FARGATE" {
+				for _, nb := range i.NetworkBindings {
+					if int(*nb.ContainerPort) == exporterPort {
+						exporterToHostPort[exporterPort] = *nb.HostPort
+					}
+				}
+			} else {
+				for _, ni := range i.NetworkInterfaces {
+					if *ni.PrivateIpv4Address != "" {
+						ip = *ni.PrivateIpv4Address
+					}
+				}
+				exporterToHostPort[exporterPort] = int64(exporterPort)
+			}
+		}
+
 		var exporterServerName *string
-		if exporterPort, err = strconv.Atoi(*v); err != nil || exporterPort < 0 {
-			// This container has an invalid port definition.
-			// This container is no good.  We continue.
-			continue
-		}
-
-		if *t.LaunchType != "FARGATE" {
-			for _, nb := range i.NetworkBindings {
-				if int(*nb.ContainerPort) == exporterPort {
-					hostPort = *nb.HostPort
-				}
-			}
-		} else {
-			for _, ni := range i.NetworkInterfaces {
-				if *ni.PrivateIpv4Address != "" {
-					ip = *ni.PrivateIpv4Address
-				}
-			}
-			hostPort = int64(exporterPort)
-		}
-
 		if exporterServerName, ok = d.DockerLabels["PROMETHEUS_EXPORTER_SERVER_NAME"]; ok {
 			host = strings.TrimRight(*exporterServerName, "/")
 		} else {
@@ -264,10 +270,12 @@ func (t *AugmentedTask) ExporterInformation() []*PrometheusTaskInfo {
 			labels = allLabels
 		}
 
-		ret = append(ret, &PrometheusTaskInfo{
-			Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
-			Labels:  labels,
-		})
+		for _, hostPort := range exporterToHostPort {
+			ret = append(ret, &PrometheusTaskInfo{
+				Targets: []string{fmt.Sprintf("%s:%d", host, hostPort)},
+				Labels:  labels,
+			})
+		}
 	}
 	return ret
 }
